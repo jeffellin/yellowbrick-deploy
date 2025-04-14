@@ -1,0 +1,12 @@
+#@ load("@ytt:data", "data")
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: HelmRepository
+metadata:
+  name: yb-repo
+  namespace: flux-system
+spec:
+  type: "oci"
+  interval: 1m
+  url: #@ 'oci://'+data.values.url
+  secretRef:
+    name: ecr-credentials

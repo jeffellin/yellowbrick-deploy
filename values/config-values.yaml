@@ -1,0 +1,27 @@
+#@data/values-schema
+---
+url: 021891578689.dkr.ecr.us-east-1.amazonaws.com
+clusterName: ferocious-classical-sparrow
+namespace: yb-ns
+instanceName: yb-test
+imagerepo: 021891578689.dkr.ecr.us-east-1.amazonaws.com
+cloudProvider: aws
+az: us-east-1b
+region: us-east-1
+repositoryName: yb-test1 #!name of the repo used when uploading the artifacts
+roles:
+  autoscaler: arn:aws:iam::021891578689:role/yb-eks-pod-cluster-as-f-c-s-us-east-1
+  operatorrolearn: arn:aws:iam::021891578689:role/yb-eks-pod-yb-operator-ferocious-classical-sparrow-us-east-1
+  diagsrolearn: arn:aws:iam::021891578689:role/yb-eks-pod-diags-ferocious-classical-sparrow-us-east-1
+  computerolearn: arn:aws:iam::021891578689:role/yb-eks-pod-compute-cluster-ferocious-classical-sparrow-us-east-1
+  managerrolearn: arn:aws:iam::021891578689:role/yb-eks-pod-yb-manager-ferocious-classical-sparrow-us-east-1
+  fluentbitrolearn: arn:aws:iam::021891578689:role/yb-eks-pod-fluent-bit-ferocious-classical-sparrow-us-east-1
+
+yellowbrick:
+  version: 7.2.0-69022.96989884
+  ybmonitoringversion: 7.2.0-69022.96989884
+  clusterAutoscalerVersion: 9.35.0
+  certManagerVersion: v1.7.1
+  observabilitystorage: yb-jellin-diags-casual-blues-mountain
+  observabilityns: yb-monitoring 
+  storageclass: yb-gp3

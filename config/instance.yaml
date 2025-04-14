@@ -1,0 +1,12 @@
+#@ load("@ytt:data", "data")
+---
+apiVersion: cluster.yellowbrick.io/v1
+kind: YBInstance
+metadata:
+  name: firstinstance
+  namespace: #@ data.values.namespace
+spec:
+  requestedState: Running
+  sharedServicesType: standard
+  storageManaged: true
+  version: #@ data.values.yellowbrick.version

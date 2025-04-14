@@ -1,0 +1,99 @@
+#@ load("@ytt:data", "data")
+#@ load("@ytt:yaml", "yaml")
+#@ repository = data.values.imagerepo + "/" + data.values.repositoryName
+
+---
+#@ def config():
+
+nodeSelector: &nodeSelector
+  cluster.yellowbrick.io/hardware_type: t3.large
+  cluster.yellowbrick.io/node_type: yb-op-standard
+
+tolerations: &tolerations
+  - effect: NoSchedule
+    key: cluster.yellowbrick.io/owned
+    operator: Equal
+    value: "true"
+image:
+  registry: #@ repository
+  repository: yellowbrick/yb-operator
+  tag: #@ data.values.yellowbrick.version
+
+config:
+  data:
+    provider: #@ data.values.cloudProvider
+    region: #@ data.values.region
+    diagsContainer: diags
+    registryHost: #@ repository
+    observabilityBucketName: #@ data.values.yellowbrick.observabilitystorage
+    klusterName: #@ data.values.clusterName
+    monitoringNamespace: #@ data.values.yellowbrick.observabilityns
+    additionalTags:
+      cluster_yellowbrick_io_creator: yb-install
+      cluster_yellowbrick_io_name: #@ data.values.instanceName
+      cluster_yellowbrick_io_owner: yb-install
+
+installCrd: true
+
+pvc:
+  storageClassName: #@ data.values.yellowbrick.storageclass
+certManager:
+  create: true
+  selfSignedIssuerName: selfsigned
+
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: #@ data.values.roles.operatorrolearn
+
+diags:
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: #@ data.values.roles.diagsrolearn
+
+yb-manager:
+  enabled: true
+  cloudProvider: #@ data.values.cloudProvider
+  containerImage: #@ repository +"/yellowbrick/yb-manager:" + data.values.yellowbrick.version
+  instance:
+    global: true
+  #! Using service.annotations disregards loadBalancer.internal and loadBalancer.tags
+  service:
+    annotations: {}
+  loadBalancer:
+    internal: false
+    tags: ""
+  nginxRepository: #@ repository + "/nginx"
+  nodeSelector: *nodeSelector
+  tolerations: *tolerations
+
+  storageClassName: #@ data.values.yellowbrick.storageclass
+  ybTemplateImage: #@ repository + "/yellowbrick/yb-template:" + data.values.yellowbrick.version
+#@ end
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: yb-operator
+  namespace: #@ data.values.namespace
+spec:
+  valuesFrom:
+  - kind: ConfigMap
+    name: cluster-yb-operator-helm-values
+  interval: 5m
+  chart:
+    spec:
+      chart: #@ data.values.repositoryName +"/"+ 'yb-operator'
+      version: #@ data.values.yellowbrick.version
+      sourceRef:
+        kind: HelmRepository
+        name: yb-repo
+        namespace: flux-system
+      interval: 1m
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-yb-operator-helm-values
+  namespace: #@ data.values.namespace
+data:
+  values.yaml:  #@ yaml.encode(config())

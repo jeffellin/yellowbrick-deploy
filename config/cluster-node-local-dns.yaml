@@ -1,0 +1,39 @@
+#@ load("@ytt:data", "data")
+#@ load("@ytt:yaml", "yaml")
+#@ repository = data.values.imagerepo + "/" + data.values.repositoryName
+---
+#@ def config():
+pillar_dns_server: 10.0.0.10
+pillar_local_dns: 169.254.0.53
+image:
+  repository: #@ repository + "/dns/k8s-dns-node-cache"
+#@ end
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: node-local-dns
+  namespace: kube-system
+spec:
+  valuesFrom:
+  - kind: ConfigMap
+    name: cluster-node-local-dns-helm-values
+  interval: 5m
+  chart:
+    spec:
+      chart: #@ data.values.repositoryName +'/'+ 'node-local-dns'
+      version: #@ data.values.yellowbrick.version
+      sourceRef:
+        kind: HelmRepository
+        name: yb-repo
+        namespace: flux-system
+      interval: 1m
+--- 
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-node-local-dns-helm-values
+  namespace: kube-system
+data:
+  values.yaml:  #@ yaml.encode(config())
+    

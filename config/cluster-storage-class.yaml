@@ -1,0 +1,41 @@
+#@ load("@ytt:data", "data")
+#@ load("@ytt:yaml", "yaml")
+---
+#@ def config():
+cloudProvider: #@ data.values.cloudProvider
+
+storageClass:
+  prefix: yb-
+
+  allowedTopologies: {}
+  parameters: {}
+#@ end
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: storage-class
+  namespace: kube-system
+spec:
+  valuesFrom:
+  - kind: ConfigMap
+    name: cluster-storage-class-helm-values
+  interval: 5m
+  chart:
+    spec:
+      chart: #@ data.values.repositoryName +'/' + 'yb-storageclass'
+      version: #@ data.values.yellowbrick.version
+      sourceRef:
+        kind: HelmRepository
+        name: yb-repo
+        namespace: flux-system
+      interval: 1m
+--- 
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-storage-class-helm-values
+  namespace: kube-system
+data:
+  values.yaml:  #@ yaml.encode(config())
+    

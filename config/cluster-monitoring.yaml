@@ -1,0 +1,196 @@
+#@ load("@ytt:data", "data")
+#@ load("@ytt:yaml", "yaml")
+#@ repository = data.values.imagerepo + "/" + data.values.repositoryName 
+
+---
+#@ def config():
+fluent-bit:
+  enabled: true
+  image:
+    repository: #@ repository +'/yellowbrickdata/fluent-bit-plugin-loki'
+    tag: 2.8.8-13
+  nodeSelector: &nodeSelector
+    cluster.yellowbrick.io/node_type: yb-mon-standard
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: #@ data.values.roles.fluentbitrolearn
+  tolerations: &tolerations
+  - effect: NoSchedule
+    key: cluster.yellowbrick.io/owned
+    operator: Equal
+    value: "true"
+grafana:
+  deploymentStrategy:
+    type: Recreate
+  downloadDashboardsImage:
+    repository: #@ repository +'/curlimages/curl'
+    tag: 8.11.1
+  image:
+    repository: #@ repository +'/grafana/grafana'
+    tag: 10.2.6
+  initChownData:
+    image:
+      repository: #@ repository +'/library/busybox'
+      tag: 1.31.1
+  persistence:
+    storageClassName: yb-gp3
+  sidecar:
+    image:
+      repository: #@ repository +'/kiwigrid/k8s-sidecar'
+      tag: 1.28.0
+  nodeSelector: *nodeSelector
+  tolerations: *tolerations
+ingress:
+  enabled: false
+loki:
+  extraContainers:
+    - command:
+        - /bin/sh
+        - -c
+        - |-
+          trap cleanup 15
+          cleanup()
+          {
+              echo "Shutting down the loki pvc monitor"
+              exit
+          }
+          
+          while true; do
+              /delete_files_if_low_memory.sh
+              sleep 360 &
+              PID=$!
+              wait $PID
+          done;
+      env:
+        - name: SPACEMONITORING_FOLDER
+          value: /data/loki/chunks
+      image: #@ repository +'/yellowbrickdata/loki-log-trimmer:v5'
+      name: pvcleanup
+      volumeMounts:
+        - mountPath: /data
+          name: storage
+  image:
+    repository: #@ repository +'/grafana/loki'
+    tag: 2.9.8
+  persistence:
+    size: 200Gi
+    storageClassName: #@ data.values.yellowbrick.storageclass
+  nodeSelector: *nodeSelector
+  tolerations: *tolerations
+prometheus:
+  alertmanager:
+    enabled: false
+    image:
+      repository: #@ repository +'/prometheus/alertmanager'
+      tag: v0.27.0
+    nodeSelector: *nodeSelector
+    tolerations: *tolerations
+  alertmanagerFiles: {}
+  configmapReload:
+    alertmanager:
+      enabled: true
+      image:
+        repository: #@ repository +'/jimmidyson/configmap-reload'
+        tag: v0.8.0
+    prometheus:
+      image:
+        repository: #@ repository +'/jimmidyson/configmap-reload'
+        tag: v0.8.0
+  kube-state-metrics:
+    image:
+      repository: #@ repository +'/kube-state-metrics/kube-state-metrics'
+      tag: v2.13.0
+    nodeSelector: *nodeSelector
+    tolerations: *tolerations
+  nodeExporter:
+    image:
+      repository: #@ repository +'/prometheus/node-exporter'
+      tag: v1.8.0
+    nodeSelector: *nodeSelector
+    tolerations: *tolerations
+  processExporter:
+    image:
+      repository: #@ repository +'/ncabatoff/process-exporter'
+      tag: sha-7ef0b73
+    nodeSelector: *nodeSelector
+    tolerations: *tolerations
+  pushgateway:
+    image:
+      repository: #@ repository +'/prom/pushgateway'
+      tag: v1.9.0
+    nodeSelector: *nodeSelector
+    tolerations: *tolerations
+  server:
+    image:
+      repository: #@ repository +'/prometheus/prometheus'
+      tag: v2.49.1
+    persistentVolume:
+      enabled: true
+      size: 100Gi
+      storageClass: #@ data.values.yellowbrick.storageclass
+    nodeSelector: *nodeSelector
+    tolerations: *tolerations
+  serverFiles:
+    alerting_rules.yml:
+      groups:
+        - name: Host alerts
+          rules:
+            - alert: PVCUtilizationHigh
+              annotations:
+                message: The persistentVolume used by {{ $labels.persistentvolumeclaim
+                  }} is {{ $value | humanize }}% utilized. Please check and take appropriate
+                  action.
+                summary: PVC utilization on PVC {{ $labels.persistentvolumeclaim }} is
+                  high
+              expr: 100 * sum(kubelet_volume_stats_used_bytes) by(persistentvolumeclaim)
+                /sum(kubelet_volume_stats_capacity_bytes) by (persistentvolumeclaim) >
+                90
+              for: 5m
+              labels:
+                severity: warning
+            - alert: HostOutOfDiskSpace
+              annotations:
+                description: |-
+                  Disk is almost full (< 80% left)
+                    VALUE = {{ $value | humanize }}
+                    LABELS: {{ $labels }}
+                message: |-
+                  Disk is almost full (< 80% left)
+                    VALUE = {{ $value | humanize }}%
+                    Node Name: {{ $labels.node }}
+                summary: Host out of disk space (instance {{ $labels.node }})
+              expr: 100 - ((node_filesystem_avail_bytes{mountpoint="/"} * 100) / node_filesystem_size_bytes{mountpoint="/"})
+                > 80
+              for: 1s
+              labels:
+                severity: warning
+#@ end
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: loki-stack
+  namespace: #@ data.values.namespace
+spec:
+  valuesFrom:
+  - kind: ConfigMap
+    name: cluster-monitoring-helm-values
+  interval: 5m
+  chart:
+    spec:
+      chart: #@ data.values.repositoryName +"/" + 'loki-stack'
+      version: #@ data.values.yellowbrick.ybmonitoringversion
+      sourceRef:
+        kind: HelmRepository
+        name: yb-repo
+        namespace: flux-system
+      interval: 1m
+--- 
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-monitoring-helm-values
+  namespace: #@ data.values.namespace
+data:
+  values.yaml:  #@ yaml.encode(config())
+    

@@ -1,0 +1,77 @@
+#@ load("@ytt:data", "data")
+#@ load("@ytt:yaml", "yaml")
+#@ repository = data.values.imagerepo + "/" + data.values.repositoryName 
+
+---
+
+#@ def config():
+
+nodeSelector: &nodeSelector
+  cluster.yellowbrick.io/hardware_type: t3.large
+  cluster.yellowbrick.io/node_type: yb-op-standard
+
+tolerations: &tolerations
+  - effect: NoSchedule
+    key: cluster.yellowbrick.io/owned
+    operator: Equal
+    value: "true"
+
+cainjector:
+  image:
+    repository: #@ repository +"/jetstack/cert-manager-cainjector"
+  nodeSelector: *nodeSelector
+  tolerations: *tolerations
+
+
+image:
+  repository: #@ repository +"/jetstack/cert-manager-controller"
+
+installCRDs: true
+
+securityContext:
+  enabled: true
+  fsGroup: 1001
+
+startupapicheck:
+  image:
+    repository: #@ repository +"/jetstack/cert-manager-ctl"
+    nodeSelector: *nodeSelector
+    tolerations: *tolerations
+
+  tolerations: *tolerations
+
+webhook:
+  image:
+    repository: #@ repository +"/jetstack/cert-manager-webhook"
+    nodeSelector: *nodeSelector
+    tolerations: *tolerations
+#@ end
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-cert-manager-helm-values
+  namespace: kube-system
+data:
+  values.yaml:  #@ yaml.encode(config())
+    
+---
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: kube-system
+spec:
+  valuesFrom:
+  - kind: ConfigMap
+    name: cluster-cert-manager-helm-values
+  interval: 5m
+  chart:
+    spec:
+      chart: #@ data.values.repositoryName +"/" + 'cert-manager'
+      version: 'v1.7.1'
+      sourceRef:
+        kind: HelmRepository
+        name: yb-repo
+        namespace: flux-system
+      interval: 1m
